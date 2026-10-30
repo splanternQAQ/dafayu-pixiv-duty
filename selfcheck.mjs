@@ -311,11 +311,16 @@ try {
   must(captured.id === pkg.name, `client id = ${captured?.id}（应等于包名 ${pkg.name}）`)
 
   const React = {
-    createElement: () => null,
-    useState: (v) => [v, () => {}],
+    createElement: (type, props, ...kids) => ({ type, props: props || {}, kids }),
+    useState: (v) => [typeof v === 'function' ? v() : v, () => {}],
     useEffect: () => {},
+    useLayoutEffect: () => {},
     useRef: (v) => ({ current: v }),
     useCallback: (f) => f,
+    useMemo: (f) => f(),
+    useReducer: (r, init) => [init, () => {}],
+    useContext: () => ({}),
+    Fragment: 'Fragment',
   }
   const mod = captured.factory((name) => (name === 'react' ? React : {}))
   must(Array.isArray(mod.inject) && mod.inject.includes('slots'), `client inject = ${JSON.stringify(mod.inject)}`)
@@ -327,6 +332,14 @@ try {
   must(reg?.id === 'pixiv-duty', `slot id = ${reg?.id}（必须等于 entry id / 设置 ns）`)
   must(reg?.label === '刷Pixiv', `slot label = ${reg?.label}`)
   must(source.includes('[data-px-sw]'), '样式里包含开关选择器（防止 CSS 丢）')
+
+  // 面板能不能真的渲染出来：useEffect 依赖数组引用「后面才 const 定义」的变量时，
+  // 渲染期就抛 ReferenceError，线上表现是设置页整片白 —— 这条断言专门拦这种白屏。
+  try {
+    let node = reg.comp({})
+    if (typeof node?.type === 'function') node = node.type(node.props || {})
+    must(Boolean(node), '设置面板 render 有返回（不是白屏）')
+  } catch (e) { bad('设置面板一渲染就抛错（多半是 TDZ）', e) }
 } catch (e) { bad('client 半端不可用', e) }
 
 /* 6. overlay / prompt */
