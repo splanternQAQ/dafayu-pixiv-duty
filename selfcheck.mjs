@@ -198,6 +198,23 @@ try {
   must(seed.pixivId === 'a@b.c' && seed.perDay === 5 && !('saveRoot' in seed) && !('dshBin' in seed),
     `pickSeed 只收原始值：${JSON.stringify(seed)}`)
 
+  // 同步到 DSH 原生设置：没 inject settings 时 `ctx.settings` 会抛，必须改走 ctx.get('settings')
+  const { syncToHost } = await import('./lib/config.mjs')
+  let syncedPatch = null
+  const picky = { get: (n) => (n === 'settings' ? { update: async (ns, patch) => { syncedPatch = { ns, patch } } } : undefined) }
+  Object.defineProperty(picky, 'settings', {
+    get() { throw new Error('cannot get property "settings" without inject') },
+  })
+  const s1 = await syncToHost(picky, { perDay: 5 })
+  must(s1.ok && syncedPatch?.ns === 'pixiv-duty' && syncedPatch?.patch?.perDay === 5,
+    `ctx.settings 抛错时改走 ctx.get('settings') 同步成功${s1.ok ? '' : '：' + s1.reason}`)
+  const s2 = await syncToHost({ get: () => null }, {})
+  must(s2.ok === false && /settings/.test(String(s2.reason)), '没有 settings 服务时返回原因而不是抛错')
+  must(readFileSync(join(ROOT, 'lib/http.mjs'), 'utf8').includes("'/config/sync'"),
+    '有 POST /config/sync 路由（面板顶部「保存更改」用）')
+  must(readFileSync(join(ROOT, 'client.js'), 'utf8').includes('保存更改'),
+    '面板顶部有「保存更改」按钮')
+
   // 新版字段：收藏区间 / 时间窗开关 / 小数匹配度 / 老配置迁移
   const r2 = clampCfg({ bookmarkMin: 500, bookmarkMax: 2000, daysOn: false, novelVibeMin: 0.35, novelVibe: '雨夜的电车' })
   must(r2.bookmarkMin === 500 && r2.bookmarkMax === 2000 && r2.daysOn === false,

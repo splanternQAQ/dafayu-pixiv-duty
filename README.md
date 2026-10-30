@@ -1,7 +1,9 @@
-# 大肥鱼自动刷Pixiv（dsh-pixiv-scroll）
+# dsh-pixiv-scroll（刷 Pixiv）
 
 > DSH 插件：按你的口味刷 Pixiv，把**插画 / 漫画 / 中文小说**挑出来，存到你指定的文件夹。
 > 标签优先筛，**再读图 / 读正文**确认；符合的落盘，不符合的只在报告里留一句为什么。
+
+> 名字：包名、设置面板 id、代码里的路径一直是 `dsh-pixiv-scroll`；仓库名 `dafayu-pixiv-duty` 是历史遗留，建议一并改成 `dsh-pixiv-scroll`。
 
 ## 它做什么
 
@@ -115,7 +117,8 @@ dsh plugin --profile web add dsh-pixiv-scroll
 4. **桌面版跑一轮 0.1 秒就结束** —— 桌面版里 `dsh` 不在 PATH。插件会自动找
    `<桌面版安装目录>\resources\runtime\cli\bin\dsh.cmd`；老版本桌面版才需要手填 `dshBin`
    （指到 `bin.js` 或 `dsh.cmd`，`.cmd` 包装内部会设 `ELECTRON_RUN_AS_NODE` 并转发参数）。
-5. **设置改了没生效** —— 本插件以自己那份 `config.json` 为准（DSH 原生设置尽力同步）；面板顶部会提示哪几项没同步。
+5. **设置改了没生效** —— 本插件以自己那份 `config.json` 为准，每改一项就存一项；面板最上方的「**保存更改**」会把这整份配置再推一遍到 DSH 原生设置，旁边会显示还有几项没同步。
+   如果点了还是失败，面板会说原因（常见：DSH 用 `--patch` 覆盖层启动时，settings 写入会被拒，但插件自己的配置照常生效）。
 6. **报告里全是"跳过"** —— 看 `blocked` 的原因：`R18` / `CONTENT_TYPE` / `QUOTA` / `NOVEL_LANG` / `DUPLICATE`。多数是偏好设得太窄（排除标签写多了）。
 7. **国内网络必须填代理** —— 「网络」那一栏填 `http://127.0.0.1:7890`（Clash 之类）这种本地代理；
    Node 与 Python 都直连不到 Pixiv，而浏览器走系统代理能通，容易出现"登录成功但搜不到东西"。

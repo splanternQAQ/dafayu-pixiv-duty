@@ -22,6 +22,11 @@
   已挪到定义之后，并在自检里加了一条「设置面板能渲染」的断言防复发。
 - **与 DSH 画廊解耦**：本插件不再内置筛选/评分界面，这部分交给可选的 `dsh-pixiv-gallery`；
   不装画廊也照常运行（轮次产出的 `picks/`、`candidates.json`、`thumbs/` 与 `approve` 接口都保留）。
+- **新增：面板顶部「保存更改」**。它把这整份配置再推一遍到 DSH 原生设置，并显示还有几项没同步。
+  顺带修了同步从来没成功过的根因：直接读 `ctx.settings` 在没 inject 时会抛
+  `cannot get property "settings" without inject`，现在改走 `ctx.get('settings')`。
+- **保存位置可以直接选**：设置里点「选…」弹系统文件夹选择框（Windows），选完自动搬运整棵树。
+- **更名**：包名 / 设置 id / 代码里的路径统一叫 `dsh-pixiv-scroll`（仓库名 `dafayu-pixiv-duty` 是历史遗留）。
 
 ## 1.1.3 — 2026-10-20
 

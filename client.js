@@ -127,6 +127,8 @@ window.__ModuleLoader__.load({
 [data-px-say][data-tone=ok]{background:rgba(22,163,74,.1);color:#15803d;}
 [data-px-grid]{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;}
 [data-px-bar]{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+[data-px-syncbar]{display:flex;gap:8px;align-items:center;padding:0 0 8px;
+  border-bottom:1px solid var(--dsw-alias-border-secondary,rgba(128,128,128,.22));}
 [data-px-list]{display:flex;flex-direction:column;gap:6px;max-height:330px;overflow:auto;}
 [data-px-pick]{display:flex;gap:8px;align-items:flex-start;padding:6px 8px;border-radius:8px;
   background:rgba(128,128,128,.06);}
@@ -232,6 +234,7 @@ window.__ModuleLoader__.load({
       const [loginStep, setLoginStep] = React.useState('')
       const [report, setReport] = React.useState('')
       const [lib, setLib] = React.useState(null)
+      const [syncing, setSyncing] = React.useState(false)
 
       const notify = (text, tone = '') => setSay({ text, tone })
 
@@ -262,9 +265,19 @@ window.__ModuleLoader__.load({
         try {
           const r = await jpost('/config', patch)
           setCfg(r.config)
-          if (!r.synced) notify('已保存到插件；但没能同步到 DSH 原生设置（以这里为准）', '')
+          if (!r.synced) notify('已存到插件；DSH 原生设置还没跟上（点顶部「保存更改」可以再推一遍）', '')
           else notify('已保存', 'ok')
         } catch (e) { notify(`保存失败：${e.message}`, 'bad') }
+      }
+
+      /* 「保存更改」：把 config.json 的现值整体推一遍到 DSH 原生设置 */
+      const syncAll = async () => {
+        setSyncing(true)
+        try {
+          const r = await jpost('/config/sync', {}, 30000)
+          if (r.synced) { notify(`已把 ${r.keys} 项同步到 DSH 原生设置`, 'ok'); await refresh() }
+          else notify(`没能同步：${r.reason || '未知原因'}（配置本身已经生效，以本页为准）`, 'bad')
+        } catch (e) { notify(`同步失败：${e.message}`, 'bad') } finally { setSyncing(false) }
       }
 
       /* 点「选…」弹系统原生文件夹选择框：起 job → 轮询 → 选中就保存（保存会把整棵树搬过去） */
@@ -416,6 +429,18 @@ window.__ModuleLoader__.load({
         : null
 
       return h('div', { 'data-px': '' },
+
+        /* 最上面：保存 / 同步 */
+        h('div', { 'data-px-syncbar': '' },
+          h('div', {
+            'data-px-note': '', 'data-warn': status?.unsynced?.length ? '' : undefined, 'data-px-grow': '',
+          }, status?.unsynced?.length
+            ? `有 ${status.unsynced.length} 项还没同步到 DSH 原生设置（以本页为准）`
+            : '改一项就存一项；点右边可以把这份配置整体推一遍到 DSH 原生设置'),
+          h('button', {
+            'data-px-btn': '', 'data-primary': '', disabled: syncing, onClick: syncAll,
+          }, syncing ? '同步中…' : '保存更改'),
+        ),
 
         /* 状态条 */
         h('div', { 'data-px-bar': '' },
@@ -785,9 +810,6 @@ window.__ModuleLoader__.load({
               background: 'rgba(128,128,128,.07)', borderRadius: 8, padding: 10, margin: 0,
             },
           }, report) : h('div', { 'data-px-note': '' }, status?.last ? `上一轮：存 ${status.last.saved} 件 · ${String(status.last.at).slice(0, 16)}` : '还没跑过'),
-          status?.unsynced?.length
-            ? h('div', { 'data-px-note': '', 'data-warn': '' }, `有 ${status.unsynced.length} 项没能同步到 DSH 原生设置（以本页为准）`)
-            : null,
         ),
       )
     }
