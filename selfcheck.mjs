@@ -12,7 +12,7 @@
  * ============================================================================
  */
 import { mkdirSync, rmSync, readFileSync, existsSync, writeFileSync,
-  readdirSync, utimesSync } from 'node:fs'
+  readdirSync, utimesSync, mkdtempSync } from 'node:fs'
 import { join, isAbsolute } from 'node:path'
 import { tmpdir } from 'node:os'
 import { spawnSync } from 'node:child_process'
@@ -714,6 +714,39 @@ try {
   must(dr.dropped === 1 && rowsLeft.length === 1 && rowsLeft[0].id === 901,
     '删除记录过期：超过 90 天的清掉（再也恢复不了），3 天前的留着')
 } catch (e) { bad('快照守护检查失败', e) }
+
+/* ⑬ 推送模式：标签权重、关注门槛、必推线、关注列表缓存 */
+group('⑬ 推送模式：权重、关注门槛与缓存')
+try {
+  const { tagWeight, judgePush, normTag, readFollowing, writeFollowingForTest } = await import('./lib/following.mjs')
+  const pcfg = {
+    keywords: ['终末地', '白タイツ', 'ぱんつ', '触手', '東方', 'アズールレーン'],
+    dislikeTags: ['催眠'], dislikeWeight: -1, minPushWeight: 1, mustPushWeight: 5, followedOnly: true,
+  }
+  const w = tagWeight(pcfg, ['終末地', '白タイツ', '催眠', '無関係'])
+  must(w.weight === 1 && w.hit.length === 2, '权重：日文「終末地」也算命中「终末地」，不喜欢标签按 -1 扣')
+  must(normTag('終末地') === normTag('终末地') && normTag('絶区零') === normTag('绝区零'), '字形归一：終/绝 这种只差一个字的标签能对上')
+  must(judgePush({ cfg: { ...pcfg, followedOnly: false }, tags: [], authorId: 1, following: { ids: [] } }).ok, '推送模式关着时不拦任何作品')
+  must(judgePush({ cfg: pcfg, tags: ['白タイツ', 'ぱんつ'], authorId: 42, following: { ids: [42] } }).ok, '权重 ≥ 下限且作者被关注 ⇒ 可推')
+  must(judgePush({ cfg: pcfg, tags: ['白タイツ', 'ぱんつ'], authorId: 7, following: { ids: [42] } }).code === 'PUSH_MODE', '权重够、但作者没关注 ⇒ 拦下')
+  const mustP = judgePush({ cfg: pcfg, tags: ['白タイツ', 'ぱんつ', '終末地', '触手', '東方', 'アズールレーン'], authorId: 7, following: { ids: [] } })
+  must(mustP.ok && mustP.weight === 6, '权重和 > 必推线 ⇒ 必推（不看关注）')
+  must(judgePush({ cfg: pcfg, tags: ['催眠'], authorId: 42, following: { ids: [42] } }).code === 'PUSH_MODE', '只命中不喜欢标签 ⇒ 哪怕已关注也拦下')
+
+  const fHome = mkdtempSync(join(tmpdir(), 'px-follow-'))
+  let calls = 0
+  const fakePx = async () => {
+    calls += 1
+    if (calls === 1) return { ok: true, userId: 9, users: [{ id: 42 }, { id: 43 }] }
+    throw new Error('第二次应该命中缓存')
+  }
+  const f1 = await (await import('./lib/following.mjs')).getFollowing({ home: fHome, callPx: fakePx })
+  const f2 = await (await import('./lib/following.mjs')).getFollowing({ home: fHome, callPx: fakePx })
+  must(f1.total === 2 && f2.total === 2 && calls === 1, '关注列表缓存 12 小时：第二次不再打网络')
+  must(readFollowing(fHome).ids.length === 2, '关注列表落盘到 following.json')
+  const f3 = await (await import('./lib/following.mjs')).getFollowing({ home: fHome, callPx: async () => { throw new Error('网络断了') }, maxAgeMs: 0 })
+  must(f3.ok === false && f3.ids.length === 2, '网络失败时退回上一次的缓存，不把推送模式搞成空')
+} catch (e) { bad('推送模式检查失败', e) }
 
 /* 收尾：把 host 半端的定时器与 MCP 关掉 */
 try {

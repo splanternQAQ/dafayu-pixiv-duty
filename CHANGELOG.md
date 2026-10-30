@@ -27,6 +27,11 @@
   `cannot get property "settings" without inject`，现在改走 `ctx.get('settings')`。
 - **保存位置可以直接选**：设置里点「选…」弹系统文件夹选择框（Windows），选完自动搬运整棵树。
 - **更名**：包名 / 设置 id / 代码里的路径统一叫 `dsh-pixiv-scroll`（仓库名 `dafayu-pixiv-duty` 是历史遗留）。
+- **新增：每件作品永不重复出现**。判重从「7/14 天冷却」改成扫全量台账：同一 `kind:id` 只要在任何一轮摆过，
+  之后一律 `SEEN_BEFORE` 拦下，不再在几轮之间反复出现。
+- **新增：推送模式（只推已关注作者）**。标签权重和 > 必推线（默认 5）必推；≥ 下限（默认 1）且作者在关注列表才推；
+  不喜欢的标签可配权重（默认 -1）；开关只对下一轮生效。关注列表经 MCP 新工具 `px_following` 读取并缓存 12 小时
+  （`following.json`，失败退回旧缓存）。新配置项：`followedOnly` / `dislikeTags` / `dislikeWeight` / `minPushWeight` / `mustPushWeight`。
 
 ## 1.1.3 — 2026-10-20
 

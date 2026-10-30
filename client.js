@@ -672,6 +672,39 @@ window.__ModuleLoader__.load({
           h(NumberField, { label: '删除记录保留天数', note: '误删恢复的依据保留多久，过期就清掉', value: cfg.deleteRecordDays, min: 30, max: 3650, onCommit: (v) => save({ deleteRecordDays: v }) }),
         ),
 
+        /* 推送模式：只推已关注作者（下一轮生效） */
+        h(Section, {
+          title: `推送模式 · ${cfg.followedOnly ? '仅已关注作者' : '都推'}`,
+        },
+          h('div', { 'data-px-bar': '' },
+            h('button', { 'data-px-btn': '', 'data-primary': !cfg.followedOnly ? '' : undefined, onClick: () => save({ followedOnly: false }) }, (!cfg.followedOnly ? '● ' : '') + '都推'),
+            h('button', { 'data-px-btn': '', 'data-primary': cfg.followedOnly ? '' : undefined, onClick: () => save({ followedOnly: true }) }, (cfg.followedOnly ? '● ' : '') + '只推已关注作者'),
+          ),
+          h('div', { 'data-px-note': '' }, '标签权重和 ≥ 下限且作者被你关注 → 可推；权重和 > 必推线 → 必推（不看关注）。开关只对下一轮生效，本轮不受影响。'),
+          h(NumberField, { label: '可推的最低权重和', value: cfg.minPushWeight, min: -10, max: 20, onCommit: (v) => save({ minPushWeight: v }) }),
+          h(NumberField, { label: '必推线（超过就必推）', value: cfg.mustPushWeight, min: 0, max: 50, onCommit: (v) => save({ mustPushWeight: v }) }),
+          h(TextField, {
+            label: '不喜欢的标签（逗号分隔）',
+            note: '命中这些标签就按下面的权重扣分，默认 -1',
+            value: (cfg.dislikeTags || []).join(','),
+            onCommit: (v) => save({ dislikeTags: String(v).split(/[,，]/).map((s) => s.trim()).filter(Boolean) }),
+          }),
+          h(NumberField, { label: '不喜欢标签的权重', value: cfg.dislikeWeight, min: -10, max: 0, onCommit: (v) => save({ dislikeWeight: v }) }),
+          h('div', { 'data-px-bar': '' },
+            h('button', {
+              'data-px-btn': '', disabled: busy === 'follow',
+              onClick: async () => {
+                setBusy('follow')
+                try {
+                  const r = await jpost('/following/refresh', {}, 180000)
+                  notify(r.ok ? `关注列表：${r.total} 位作者` : `拉取失败：${r.error || r.message || '未知'}`, r.ok ? 'ok' : 'warn')
+                } catch (e) { notify(String(e?.message || e), 'warn') } finally { setBusy('') }
+              },
+            }, busy === 'follow' ? '读取中…' : '读取我的关注列表'),
+            h('span', { 'data-px-note': '' }, '推送模式要先有这份名单；读取失败时用上次缓存'),
+          ),
+        ),
+
         /* 作品库体检：目录 / 文件 / 快捷方式 都在不在 */
         h(Section, {
           title: lib ? `作品库体检 · ${lib.ok ? '完好' : '有问题'}` : '作品库体检',
