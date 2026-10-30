@@ -69,22 +69,25 @@ window.__ModuleLoader__.load({
     }
     const request = async (p, opts = {}) => {
       const b = await resolveBase()
+      // timeoutMs 不进 fetch —— /run 可能要等代理就绪（十几秒），默认 10 秒放不下
+      const { timeoutMs = 10000, ...init } = opts
       const ctl = new AbortController()
-      const timer = setTimeout(() => ctl.abort(), 10000)
+      const timer = setTimeout(() => ctl.abort(), timeoutMs)
       try {
-        const res = await fetch(b + p, { credentials: 'same-origin', ...opts, signal: ctl.signal })
+        const res = await fetch(b + p, { credentials: 'same-origin', ...init, signal: ctl.signal })
         return await asJson(res)
       } catch (e) {
-        if (e?.name === 'AbortError') throw new Error(`请求超时（10 秒）—— 插件后端没响应（${b}），看 duty.log`)
+        if (e?.name === 'AbortError') throw new Error(`请求超时（${Math.round(timeoutMs / 1000)} 秒）—— 插件后端没响应（${b}），看 duty.log`)
         if (e instanceof TypeError) throw new Error(`网络错误（${e.message}）—— 找不到插件后端（试过 ${CANDIDATES.join(' 与 ')}）`)
         throw e
       } finally { clearTimeout(timer) }
     }
     const jget = (p) => request(p)
-    const jpost = (p, body) => request(p, {
+    const jpost = (p, body, timeoutMs) => request(p, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body || {}),
+      ...(timeoutMs ? { timeoutMs } : {}),
     })
 
     const CSS = `
@@ -124,6 +127,11 @@ window.__ModuleLoader__.load({
 [data-px-say][data-tone=ok]{background:rgba(22,163,74,.1);color:#15803d;}
 [data-px-grid]{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;}
 [data-px-bar]{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+[data-px-list]{display:flex;flex-direction:column;gap:6px;max-height:330px;overflow:auto;}
+[data-px-pick]{display:flex;gap:8px;align-items:flex-start;padding:6px 8px;border-radius:8px;
+  background:rgba(128,128,128,.06);}
+[data-px-pickbox]{display:flex;gap:6px;align-items:center;padding-top:1px;flex:none;}
+[data-px-idx]{min-width:16px;text-align:right;font-size:11px;color:var(--dsw-alias-label-tertiary,#9aa0a6);}
 `
 
     function Switch({ on, onChange, disabled }) {
@@ -221,6 +229,7 @@ window.__ModuleLoader__.load({
       const [tok, setTok] = React.useState('')
       const [loginStep, setLoginStep] = React.useState('')
       const [report, setReport] = React.useState('')
+      const [lib, setLib] = React.useState(null)
 
       const notify = (text, tone = '') => setSay({ text, tone })
 
@@ -259,7 +268,8 @@ window.__ModuleLoader__.load({
       const runNow = async () => {
         setBusy('run')
         try {
-          const r = await jpost('/run', {})
+          // 后端可能先等 Clash 起来（默认最多 25 秒），这里给足超时
+          const r = await jpost('/run', {}, 70000)
           notify(`已开跑：${r.roundId}（profile=${r.profile}）`, 'ok')
           setTimeout(refresh, 1500)
         } catch (e) { notify(`开跑失败：${e.message}`, 'bad') } finally { setBusy('') }
@@ -313,6 +323,49 @@ window.__ModuleLoader__.load({
           setReport(r.text || '（今天还没有报告）')
         } catch (e) { notify(`读报告失败：${e.message}`, 'bad') }
       }
+
+
+      React.useEffect(() => { loadLibrary(false) }, [loadLibrary])
+
+      const loadLibrary = React.useCallback(async (repair) => {
+        setBusy('lib')
+        try {
+          if (repair) {
+            const r = await jpost('/library/repair', {}, 120000)
+            const a = r.audit || r
+            setLib(a)
+            const n = (r.repaired || []).length + (r.removed || []).length
+            notify(a.ok ? `修好了${n ? `（动了 ${n} 处链接）` : ''}：${a.works} 件在库` : `还有问题：${(a.issues || []).map((i) => i.detail || i.code).join('；')}`, a.ok ? 'ok' : '')
+          } else {
+            const r = await jget('/library')
+            setLib(r)
+          }
+        } catch (e) { notify(`体检失败：${e.message}`, 'bad') } finally { setBusy('') }
+      }, [])
+
+      const repairLib = () => loadLibrary(true)
+
+      const rollbackLib = async () => {
+        if (!window.confirm('按最新存档把缺的、变小的作品补回来？（只补不删）')) return
+        setBusy('rollback')
+        try {
+          const r = await jpost('/library/rollback', {}, 900000)
+          const n = (r.rolledBack || []).length
+          notify(`回滚：补回 ${n} 件${r.stillMissing?.length ? `，还差 ${r.stillMissing.length} 件` : ''}`, r.stillMissing?.length ? '' : 'ok')
+          loadLibrary(false)
+        } catch (e) { notify(`回滚失败：${e.message}`, 'bad') } finally { setBusy('') }
+      }
+
+      const restoreLib = async () => {
+        setBusy('restore')
+        try {
+          const r = await jpost('/library/restore', { limit: 10 }, 900000)
+          const ok = (r.restored || []).filter((x) => x.ok || x.saved).length
+          notify(`恢复了 ${ok} 件${r.remaining ? `，还剩 ${r.remaining} 件缺失` : ''}`, ok ? 'ok' : '')
+          loadLibrary(false)
+        } catch (e) { notify(`恢复失败：${e.message}`, 'bad') } finally { setBusy('') }
+      }
+
 
       if (!cfg) {
         return h('div', { 'data-px': '' },
@@ -531,13 +584,21 @@ window.__ModuleLoader__.load({
         /* 保存 */
         h(Section, { title: '保存到哪' },
           h(TextField, {
-            label: '保存根目录', note: `空 = 插件家目录下的 library（当前：${status?.env?.saveRoot || ''}）`,
+            label: '作品库根目录',
+            note: `空 = 插件家目录下的 Download（当前：${status?.env?.saveRoot || ''}）。原图在 all_works；改这里会把整棵树一起搬过去。`,
             value: cfg.saveRoot, placeholder: 'D:\\Pixiv',
             onCommit: (v) => save({ saveRoot: v }),
           }),
           h(TextField, {
-            label: '目录模板', note: '占位符 {kind} {artist} {title} {id} {year}；必须含 {id}',
-            value: cfg.dirTemplate, onCommit: (v) => save({ dirTemplate: v }),
+            label: '作品命名方式',
+            note: '占位符 {artistId} {artist} {title} {id} {kind} {rating} {year}；必须含 {id}。默认 {artistId}_{title}_{id}',
+            value: cfg.workTemplate, onCommit: (v) => save({ workTemplate: v }),
+          }),
+          h(TextField, {
+            label: '镜像标签（默认停用）',
+            note: '默认留空。标签分类已改由 DSH 画廊做虚拟分类，不会在磁盘建文件夹；填了仍会在同名文件夹建 junction，不建议。',
+            value: (cfg.mirrorTags || []).join(','),
+            onCommit: (v) => save({ mirrorTags: String(v).split(/[,，]/).map((s) => s.trim()).filter(Boolean) }),
           }),
           h(ToggleRow, {
             label: '存好自动打开文件夹',
@@ -545,18 +606,81 @@ window.__ModuleLoader__.load({
             on: cfg.openAfterSave, onChange: (v) => save({ openAfterSave: v }),
           }),
           h('div', { 'data-px-bar': '' },
-            h('button', { 'data-px-btn': '', onClick: () => jpost('/open', { target: 'root' }).catch(() => {}) }, '打开保存目录'),
+            h('button', { 'data-px-btn': '', onClick: () => jpost('/open', { target: 'root' }).catch(() => {}) }, '打开作品库'),
             h('button', { 'data-px-btn': '', onClick: () => jpost('/open', { target: 'out' }).catch(() => {}) }, '打开报告目录'),
             h('span', { 'data-px-note': '' }, status?.env?.saveRootWritable ? '可写' : `不可写：${status?.env?.error || '未知'}`),
           ),
+          h('div', { 'data-px-note': '' }, '开跑前先查库（三选一，互斥）：对不上就回滚 / 只弹窗问你 / 都不管'),
+          h('div', { 'data-px-bar': '' },
+            ...[['auto', '出错就回滚+弹窗'], ['ask', '只弹窗问我'], ['off', '都不管']].map(([v, label]) => h('button', {
+              'data-px-btn': '', 'data-primary': cfg.libGuard === v ? '' : undefined,
+              onClick: () => save({ libGuard: v }),
+            }, (cfg.libGuard === v ? '● ' : '') + label)),
+          ),
+          h(NumberField, { label: '弹窗等你几秒', note: '只弹窗问的时候，超时当「不回滚」继续跑', value: cfg.guardWaitSec, min: 0, max: 600, onCommit: (v) => save({ guardWaitSec: v }) }),
+          h(NumberField, { label: '候选缓存保留天数', note: '没过期前能回看缩略图；过期只留「当天选了哪些」', value: cfg.cacheDays, min: 7, max: 365, onCommit: (v) => save({ cacheDays: v }) }),
+          h(NumberField, { label: '删除记录保留天数', note: '误删恢复的依据保留多久，过期就清掉', value: cfg.deleteRecordDays, min: 30, max: 3650, onCommit: (v) => save({ deleteRecordDays: v }) }),
+        ),
+
+        /* 作品库体检：目录 / 文件 / 快捷方式 都在不在 */
+        h(Section, {
+          title: lib ? `作品库体检 · ${lib.ok ? '完好' : '有问题'}` : '作品库体检',
+          extra: h('div', { 'data-px-bar': '' },
+            h('button', { 'data-px-btn': '', disabled: busy === 'lib', onClick: () => loadLibrary(true) }, busy === 'lib' ? '体检中…' : '重新体检'),
+            h('button', { 'data-px-btn': '', disabled: busy === 'lib', onClick: repairLib }, '修一下')),
+        },
+          lib
+            ? h('div', { 'data-px-note': '' },
+                `${lib.works || 0} 件在库 · ${(lib.tags || []).length} 个镜像标签${lib.bytes ? ' · ' + (lib.bytes / 1048576).toFixed(1) + ' MB' : ''}`)
+            : h('div', { 'data-px-note': '' }, '正在体检…'),
+          lib && !lib.ok
+            ? h('div', { 'data-px-note': '', 'data-warn': '' },
+                (lib.issues || []).map((i) => i.detail || i.msg || i.code).join('；') +
+                (lib.missing?.length ? `｜缺失 ${lib.missing.length} 件（可恢复）` : ''))
+            : null,
+          lib && lib.missing?.length
+            ? h('div', { 'data-px-bar': '' },
+                h('button', {
+                  'data-px-btn': '', 'data-primary': '', disabled: busy === 'restore', onClick: restoreLib,
+                }, busy === 'restore' ? '恢复中…' : `恢复缺失的 ${lib.missing.length} 件`),
+                h('span', { 'data-px-note': '' }, '按台账重新下载，不占每日额度'))
+            : null,
+          lib?.snapshot
+            ? h('div', { 'data-px-note': '' },
+                `存档 ${lib.snapshot.prevDirs ?? '—'} 件 / ${lib.snapshot.prevBytes ? (lib.snapshot.prevBytes / 1048576).toFixed(1) + ' MB' : '—'}` +
+                ` ｜ 现况 ${lib.snapshot.dirs || 0} 件 / ${((lib.snapshot.bytes || 0) / 1048576).toFixed(1)} MB` +
+                ` ｜ ${lib.snapshot.matched ? '对得上' : '缺 ' + (lib.snapshot.missing || 0) + ' 件、少文件 ' + (lib.snapshot.shrunk || 0) + ' 件'}`)
+            : null,
+          lib && lib.snapshot && !lib.snapshot.matched
+            ? h('div', { 'data-px-bar': '' },
+                h('button', { 'data-px-btn': '', 'data-primary': '', disabled: busy === 'rollback', onClick: rollbackLib }, busy === 'rollback' ? '回滚中…' : '回滚到最新存档'),
+                h('span', { 'data-px-note': '' }, '只补不删；残件进 trash/'))
+            : null,
+          h('div', { 'data-px-note': '' }, `库根目录：${lib?.libRoot || status?.env?.saveRoot || ''}`),
         ),
 
         /* 网络 */
         h(Section, { title: '网络' },
           h(TextField, {
-            label: '访问 Pixiv 的代理', note: '留空 = 直连；国内多数网络需要填，例如 http://127.0.0.1:12000',
-            value: cfg.proxyUrl, placeholder: 'http://127.0.0.1:12000',
+            label: '访问 Pixiv 的代理', note: '留空 = 直连；国内多数网络需要填，例如 http://127.0.0.1:7890',
+            value: cfg.proxyUrl, placeholder: 'http://127.0.0.1:7890',
             onCommit: (v) => save({ proxyUrl: v.trim() }),
+          }),
+          h(ToggleRow, {
+            label: '跑之前自动开 Clash',
+            note: '代理端口连不上就先启动下面这个程序，等它就绪再开跑（关掉 = 只记日志，不启动任何程序）',
+            on: cfg.clashAuto, onChange: (v) => save({ clashAuto: v }),
+          }),
+          h(TextField, {
+            label: 'Clash 主程序路径',
+            note: '要 GUI 那个 exe，不是内核（clash-win64.exe）。留空 = 不自动拉',
+            value: cfg.clashPath, placeholder: 'D:\\Clash for Windows\\Clash for Windows.exe',
+            onCommit: (v) => save({ clashPath: v.trim() }),
+          }),
+          h(NumberField, {
+            label: '拉起后最多等几秒', note: '冷启动一般 5–15 秒；超时就放弃这一轮并写进 duty.log',
+            value: cfg.clashWaitSec, min: 3, max: 120,
+            onCommit: (v) => save({ clashWaitSec: v }),
           }),
         ),
 
