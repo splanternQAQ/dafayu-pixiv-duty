@@ -268,7 +268,7 @@ window.__ModuleLoader__.load({
       const runNow = async () => {
         setBusy('run')
         try {
-          // 后端可能先等 Clash 起来（默认最多 25 秒），这里给足超时
+          // 后端可能先等代理软件起来（默认最多 25 秒），这里给足超时
           const r = await jpost('/run', {}, 70000)
           notify(`已开跑：${r.roundId}（profile=${r.profile}）`, 'ok')
           setTimeout(refresh, 1500)
@@ -325,8 +325,6 @@ window.__ModuleLoader__.load({
       }
 
 
-      React.useEffect(() => { loadLibrary(false) }, [loadLibrary])
-
       const loadLibrary = React.useCallback(async (repair) => {
         setBusy('lib')
         try {
@@ -342,6 +340,8 @@ window.__ModuleLoader__.load({
           }
         } catch (e) { notify(`体检失败：${e.message}`, 'bad') } finally { setBusy('') }
       }, [])
+
+      React.useEffect(() => { loadLibrary(false) }, [loadLibrary])
 
       const repairLib = () => loadLibrary(true)
 
@@ -667,20 +667,20 @@ window.__ModuleLoader__.load({
             onCommit: (v) => save({ proxyUrl: v.trim() }),
           }),
           h(ToggleRow, {
-            label: '跑之前自动开 Clash',
+            label: '跑之前自动开代理（VPN）',
             note: '代理端口连不上就先启动下面这个程序，等它就绪再开跑（关掉 = 只记日志，不启动任何程序）',
-            on: cfg.clashAuto, onChange: (v) => save({ clashAuto: v }),
+            on: cfg.vpnAuto, onChange: (v) => save({ vpnAuto: v }),
           }),
           h(TextField, {
-            label: 'Clash 主程序路径',
-            note: '要 GUI 那个 exe，不是内核（clash-win64.exe）。留空 = 不自动拉',
-            value: cfg.clashPath, placeholder: 'D:\\Clash for Windows\\Clash for Windows.exe',
-            onCommit: (v) => save({ clashPath: v.trim() }),
+            label: '代理软件主程序路径',
+            note: 'Clash / V2RayN / Shadowsocks 之类都行，要 GUI 那个 exe，不是内核。留空 = 不自动拉',
+            value: cfg.vpnPath, placeholder: 'C:\\Program Files\\Clash for Windows\\Clash for Windows.exe',
+            onCommit: (v) => save({ vpnPath: v.trim() }),
           }),
           h(NumberField, {
             label: '拉起后最多等几秒', note: '冷启动一般 5–15 秒；超时就放弃这一轮并写进 duty.log',
-            value: cfg.clashWaitSec, min: 3, max: 120,
-            onCommit: (v) => save({ clashWaitSec: v }),
+            value: cfg.vpnWaitSec, min: 3, max: 120,
+            onCommit: (v) => save({ vpnWaitSec: v }),
           }),
         ),
 

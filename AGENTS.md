@@ -55,8 +55,8 @@
   overlay 里用**绝对路径**（`lib/runner.mjs` 的 `DEFAULT_AGENT_ENTRY` 已经这么做了）。
 - **网络**：国内环境必须配 `proxyUrl`（如 `http://127.0.0.1:7890`）。Node 与 Python 直连 Pixiv 会被阻断，
   而 Edge 走系统代理能通 —— 典型症状是"登录成功、搜索 0 条"。
-  `runRound` 起子会话前会 `ensureProxy()`：先 TCP 探一次代理端口，不通且 `clashAuto` 开着就
-  `spawn(clashPath)` 拉起 Clash，最多等 `clashWaitSec` 秒；超时则这一轮不跑（`/run` 返回 409 并写 duty.log）。
+  `runRound` 起子会话前会 `ensureProxy()`：先 TCP 探一次代理端口，不通且 `vpnAuto` 开着就
+  `spawn(vpnPath)` 拉起代理软件（Clash / V2RayN 都行），最多等 `vpnWaitSec` 秒；超时则这一轮不跑（`/run` 返回 409 并写 duty.log）。
   探活只看端口通不通，不验证它是不是真代理。
   Python `requests` 认**小写** `https_proxy`，父进程里的沙箱代理会盖掉大写变量，所以 `lib/toolset.mjs`
   一次写全 6 个键（大小写各三份）。
