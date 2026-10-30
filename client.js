@@ -166,7 +166,7 @@ window.__ModuleLoader__.load({
     /**
      * 文本字段：本地立即显示，失焦/回车才提交 —— 避免每敲一个字打一次接口。
      */
-    function TextField({ label, note, value, onCommit, placeholder, textarea, password, type = 'text' }) {
+    function TextField({ label, note, value, onCommit, placeholder, textarea, password, type = 'text', action }) {
       const [v, setV] = React.useState(value ?? '')
       const last = React.useRef(value ?? '')
       React.useEffect(() => {
@@ -194,8 +194,10 @@ window.__ModuleLoader__.load({
           h('textarea', { ...common, 'data-px-ta': '' }))
       }
       return h(Row, { label, note },
-        h('div', { style: { flex: '0 1 260px', width: 260, minWidth: 0, maxWidth: '100%' } },
-          h('input', common)))
+        h('div', { 'data-px-bar': '' },
+          h('div', { style: { flex: '0 1 260px', width: 260, minWidth: 0, maxWidth: '100%' } },
+            h('input', common)),
+          action || null))
     }
 
     function NumberField({ label, note, value, onCommit, min, max, disabled, fraction }) {
@@ -263,6 +265,25 @@ window.__ModuleLoader__.load({
           if (!r.synced) notify('已保存到插件；但没能同步到 DSH 原生设置（以这里为准）', '')
           else notify('已保存', 'ok')
         } catch (e) { notify(`保存失败：${e.message}`, 'bad') }
+      }
+
+      /* 点「选…」弹系统原生文件夹选择框：起 job → 轮询 → 选中就保存（保存会把整棵树搬过去） */
+      const pickRoot = async () => {
+        setBusy('pick')
+        try {
+          const start = await jpost('/pick-dir', { initial: cfg.saveRoot || status?.env?.saveRoot || '', title: '选择作品库根目录（all_works 的上一层）' })
+          if (!start?.id) throw new Error(start?.error || '打不开选择框')
+          let picked = ''
+          for (let i = 0; i < 260; i++) {
+            await new Promise((r) => setTimeout(r, 700))
+            const s = await jget(`/pick-dir/status?id=${encodeURIComponent(start.id)}`)
+            if (s.status === 'ok') { picked = s.path; break }
+            if (s.status === 'cancelled') break
+            if (s.status === 'failed' || s.status === 'gone') throw new Error(s.error || '选择失败')
+          }
+          if (picked && picked !== (cfg.saveRoot || '')) await save({ saveRoot: picked })
+          else if (!picked) notify('没选路径（取消或窗口已关）', '')
+        } catch (e) { notify(`选目录失败：${e.message}`, 'bad') } finally { setBusy('') }
       }
 
       const runNow = async () => {
@@ -586,8 +607,12 @@ window.__ModuleLoader__.load({
           h(TextField, {
             label: '作品库根目录',
             note: `空 = 插件家目录下的 Download（当前：${status?.env?.saveRoot || ''}）。原图在 all_works；改这里会把整棵树一起搬过去。`,
-            value: cfg.saveRoot, placeholder: 'D:\\Pixiv',
+            value: cfg.saveRoot, placeholder: '留空 = 插件家目录；或点右边选一个',
             onCommit: (v) => save({ saveRoot: v }),
+            action: h('button', {
+              'data-px-btn': '', disabled: busy === 'pick',
+              onClick: pickRoot,
+            }, busy === 'pick' ? '等你在窗口里选…' : '选…'),
           }),
           h(TextField, {
             label: '作品命名方式',
@@ -596,7 +621,7 @@ window.__ModuleLoader__.load({
           }),
           h(TextField, {
             label: '镜像标签（默认停用）',
-            note: '默认留空。标签分类已改由 DSH 画廊做虚拟分类，不会在磁盘建文件夹；填了仍会在同名文件夹建 junction，不建议。',
+            note: '默认留空。分类可以交给选装的 DSH 画廊（它做虚拟标签，不在磁盘建文件夹）；本插件不依赖它，留空也照常运行。填了会在同名文件夹建 junction，一般不建议。',
             value: (cfg.mirrorTags || []).join(','),
             onCommit: (v) => save({ mirrorTags: String(v).split(/[,，]/).map((s) => s.trim()).filter(Boolean) }),
           }),
@@ -657,6 +682,8 @@ window.__ModuleLoader__.load({
                 h('span', { 'data-px-note': '' }, '只补不删；残件进 trash/'))
             : null,
           h('div', { 'data-px-note': '' }, `库根目录：${lib?.libRoot || status?.env?.saveRoot || ''}`),
+          h('div', { 'data-px-note': '' },
+            '选装联动：和 DSH 画廊一起用时，画廊会来读这里的轮次页、候选清单和缩略图，评分与点头下载都在画廊里；没装画廊本插件照样跑，只是没有评分界面。'),
         ),
 
         /* 网络 */
